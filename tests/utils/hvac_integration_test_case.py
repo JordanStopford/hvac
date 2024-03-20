@@ -2,7 +2,7 @@
 import logging
 import re
 import time
-
+from filelock import FileLock
 from tests.utils import get_config_file_path, create_client, is_enterprise
 from tests.utils.server_manager import ServerManager
 import distutils.spawn
@@ -18,6 +18,7 @@ class HvacIntegrationTestCase:
     use_env: bool = False
     server_retry_count: int = 2  # num retries not total tries
     server_retry_delay_seconds: float = 0.1
+    setup_lock = "vault.json"
 
     @classmethod
     def setUpClass(cls):
@@ -44,12 +45,15 @@ class HvacIntegrationTestCase:
             use_consul=cls.enable_vault_ha,
         )
 
+
         while True:
             try:
-                cls.manager.start()
-                cls.manager.initialize()
-                cls.manager.unseal()
-                cls.manager.configure()
+                with FileLock(str(cls.setup_lock) + ".lock"):
+                    cls.manager.start()
+                    cls.manager.initialize(cls.setup_lock)
+                    cls.manager.unseal(cls.setup_lock)
+                    cls.manager.configure(cls.setup_lock)
+                break
             except Exception as e:
                 cls.manager.stop()
                 logging.debug(

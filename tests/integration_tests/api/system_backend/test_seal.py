@@ -1,8 +1,12 @@
 from unittest import TestCase
-
+from unittest import skipIf
+from tests import utils
 from tests.utils.hvac_integration_test_case import HvacIntegrationTestCase
 
-
+@skipIf(
+    utils.vault_running_inside_docker(),
+    "Transform secrets engine only supported with Enterprise Vault",
+)
 class TestSeal(HvacIntegrationTestCase, TestCase):
     def test_unseal_multi(self):
         cls = type(self)

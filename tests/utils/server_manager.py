@@ -6,8 +6,8 @@ import time
 import requests
 import hcl
 import typing as t
-
 import distutils.spawn
+import json
 from unittest import SkipTest
 from tests.utils import (
     get_config_file_path,
@@ -343,17 +343,35 @@ class ServerManager:
                         logger.debug(stdout_lines.decode())
                         f.writelines(stdout_lines.decode())
 
-    def initialize(self):
+    def initialize(self, vault_data_path: str):
         """Perform initialization of the vault server process and record the provided unseal keys and root token."""
+        data = {}
+        if vault_running_inside_docker():
+            try:
+                with open(vault_data_path) as f:
+                    data = json.load(f)
+            except:
+                pass # File content not yet present
+
+        
         if self.client.sys.is_initialized():
-            raise RuntimeError(
-                f"Vault is already initialized: {self.get_active_vault_addresses()}"
-            )
+            if not "PYTEST_VAULT_ROOT_TOKEN" in data or not "PYTEST_VAULT_KEYS" in data:
+                raise RuntimeError(
+                    f"Vault is already initialized: {self.get_active_vault_addresses()}"
+                )
 
-        result = self.client.sys.initialize(secret_shares=5, secret_threshold=3)
+            self.root_token = self.client.token = data["PYTEST_VAULT_ROOT_TOKEN"]
+            self.keys = data["PYTEST_VAULT_KEYS"]
+        else:
+            result = self.client.sys.initialize(secret_shares=5, secret_threshold=3)
 
-        self.root_token = self.client.token = result["root_token"]
-        self.keys = result["keys"]
+            self.root_token = self.client.token = result["root_token"]
+            self.keys = result["keys"]
+            if vault_running_inside_docker():
+                data["PYTEST_VAULT_ROOT_TOKEN"] = self.root_token
+                data["PYTEST_VAULT_KEYS"] = self.keys
+                with open(vault_data_path, 'w') as f:
+                    json.dump(data, f)
 
     def restart_vault_cluster(self, perform_init=True):
         self.stop()
@@ -392,17 +410,45 @@ class ServerManager:
             vault_addresses.append(vault_addr)
         return vault_addresses
 
-    def unseal(self):
+    def unseal(self, vault_data_path: str):
         """Unseal the vault server process."""
+        data = {}
+        if vault_running_inside_docker():
+            try:
+                with open(cls.vault_data_path) as f:
+                    data = json.load(f)
+            except:
+                pass # File content not yet present
+
+        #if "PYTEST_VAULT_UNSEALED" in data: return
         vault_addresses = self.get_active_vault_addresses()
         for vault_address in vault_addresses:
             client = create_client(url=vault_address)
-            client.sys.submit_unseal_keys(self.keys)
+            if (client.sys.is_sealed()):
+                client.sys.submit_unseal_keys(self.keys)
 
-    def configure(self):
+        if vault_running_inside_docker():
+            data["PYTEST_VAULT_UNSEALED"] = "True"
+            with open(vault_data_path, 'w') as f:
+                json.dump(data, f)
+
+    def configure(self, vault_data_path: str):
         """Configure any pre-requisites for tests."""
+        data = {}
+        if vault_running_inside_docker():
+            try:
+                with open(vault_data_path) as f:
+                    data = json.load(f)
+            except:
+                pass # File content not yet present
+
+        if "PYTEST_VAULT_CONFIGURED" in data: return
         if distutils.spawn.find_executable("terraform"):
             terraform_dir = get_config_file_path("vault-ldap")
             # Now we need to run terraform to setup
             subprocess.check_call(f"terraform -chdir='{terraform_dir}' init", shell=True)
             subprocess.check_call(f"terraform -chdir='{terraform_dir}' apply -var='token={self.root_token}' -auto-approve", shell=True)
+
+        data["PYTEST_VAULT_CONFIGURED"] = "True"
+        with open(vault_data_path, 'w') as f:
+            json.dump(data, f)

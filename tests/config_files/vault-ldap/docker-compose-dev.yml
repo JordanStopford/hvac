@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  vault:
+    image: hashicorp/vault:1.15.1
+    command:
+      - server
+      - -dev
+    environment:
+      VAULT_ADDR: 'http://127.0.0.1:8200'
+      VAULT_API_ADDR: 'http://127.0.0.1:8200'
+      VAULT_SKIP_VERIFY: true
+      VAULT_DEV_ROOT_TOKEN_ID: 'root'
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - "8200-8201:8200-8201"
+
+  openldap:
+    image: bitnami/openldap:2.6
+    ports:
+      - '1389:1389'
+      - '1636:1636'
+    environment:
+      - LDAP_CONFIG_ADMIN_ENABLED=true
+      - LDAP_ADMIN_USERNAME=admin
+      - LDAP_ADMIN_PASSWORD=adminpassword
+      - LDAP_USERS=vaulttest,vaulttest1,vaulttest2
+      - LDAP_PASSWORDS=vaulttestpassword,vaulttestpassword,vaulttestpassword
